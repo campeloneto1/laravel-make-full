@@ -34,9 +34,9 @@ class ControllerGenerator extends BaseGenerator
 
     namespace {$namespace};
 
-    use {$modelNamespace}\{$this->modelName};
-    use {$serviceNamespace}\{$this->modelName}Service;
-    use {$resourceNamespace}\{$this->modelName}Resource;
+    use {$modelNamespace}\\{$this->modelName};
+    use {$serviceNamespace}\\{$this->modelName}Service;
+    use {$resourceNamespace}\\{$this->modelName}Resource;
     use {$requestNamespace}\Store{$this->modelName}Request;
     use {$requestNamespace}\Update{$this->modelName}Request;
     use Illuminate\Http\JsonResponse;
