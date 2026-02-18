@@ -6,12 +6,19 @@ class ControllerGenerator extends BaseGenerator
 {
     protected bool $isApi;
     protected bool $useRepository;
+    protected string $modelNameCamel;
 
-    public function __construct(string $modelName, array $fields = [], bool $isApi = true, bool $useRepository = true)
-    {
+    public function __construct(
+        string $modelName,
+        array $fields = [],
+        bool $isApi = true,
+        bool $useRepository = true
+    ) {
         parent::__construct($modelName, $fields);
+
         $this->isApi = $isApi;
         $this->useRepository = $useRepository;
+        $this->modelNameCamel = lcfirst($modelName);
     }
 
     public function generate(): string
@@ -22,7 +29,7 @@ class ControllerGenerator extends BaseGenerator
         $requestNamespace = config('make-full.namespaces.request', 'App\\Http\\Requests');
         $modelNamespace = config('make-full.namespaces.model', 'App\\Models');
 
-        $content = <<<PHP
+        return <<<PHP
 <?php
 
 namespace {$namespace};
@@ -45,12 +52,11 @@ class {$this->modelName}Controller extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index(Request $request): AnonymousResourceCollection
+    public function index(Request \$request): AnonymousResourceCollection
     {
-        // Busca ou paginação
-        $result = $this->service->search($request->all());
-        return {$this->modelName}Resource::collection($result);
-    }
+        \$result = \$this->service->search(\$request->all());
+
+        return {$this->modelName}Resource::collection(\$result);
     }
 
     /**
@@ -74,9 +80,14 @@ class {$this->modelName}Controller extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Update{$this->modelName}Request \$request, {$this->modelName} \${$this->modelNameCamel}): {$this->modelName}Resource
-    {
-        \${$this->modelNameCamel} = \$this->service->update(\${$this->modelNameCamel}, \$request->validated());
+    public function update(
+        Update{$this->modelName}Request \$request,
+        {$this->modelName} \${$this->modelNameCamel}
+    ): {$this->modelName}Resource {
+        \${$this->modelNameCamel} = \$this->service->update(
+            \${$this->modelNameCamel},
+            \$request->validated()
+        );
 
         return new {$this->modelName}Resource(\${$this->modelNameCamel});
     }
@@ -88,17 +99,16 @@ class {$this->modelName}Controller extends Controller
     {
         \$this->service->delete(\${$this->modelNameCamel});
 
-        return response()->json(['message' => '{$this->modelName} deleted successfully']);
+        return response()->json(null, 204);
     }
 }
 PHP;
-
-        return $content;
     }
 
     public function getPath(): string
     {
         $path = config('make-full.paths.controller', 'app/Http/Controllers');
+
         return "{$path}/{$this->modelName}Controller.php";
     }
 }

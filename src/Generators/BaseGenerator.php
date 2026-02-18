@@ -3,6 +3,7 @@
 namespace Campelo\MakeFull\Generators;
 
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 
 abstract class BaseGenerator
 {
@@ -22,7 +23,18 @@ abstract class BaseGenerator
         $this->modelNameSnakePlural = Str::snake($this->modelNamePlural);
         $this->modelNameCamel = Str::camel($this->modelName);
         $this->modelNameCamelPlural = Str::camel($this->modelNamePlural);
-        $this->fields = $fields;
+
+        $this->fields = array_map(function ($field) {
+            $this->validateFieldStructure($field);
+
+            return array_merge([
+                'nullable' => false,
+                'unique' => false,
+                'length' => null,
+                'precision' => 2,
+                'foreign' => null,
+            ], $field);
+        }, $fields);
     }
 
     abstract public function generate(): string;
@@ -31,13 +43,11 @@ abstract class BaseGenerator
 
     protected function getStub(string $name): string
     {
-        // Check for published stub first
         $publishedPath = base_path("stubs/make-full/{$name}.stub");
         if (file_exists($publishedPath)) {
             return file_get_contents($publishedPath);
         }
 
-        // Fall back to package stub
         $packagePath = __DIR__ . "/../Stubs/{$name}.stub";
         if (file_exists($packagePath)) {
             return file_get_contents($packagePath);
@@ -78,7 +88,12 @@ abstract class BaseGenerator
             return '';
         }
 
-        $fieldNames = array_map(fn($f) => "'{$f['name']}'", $this->fields);
+        $fieldNames = array_filter($this->fields, fn($f) =>
+            !in_array($f['name'], ['id', 'created_at', 'updated_at', 'deleted_at'])
+        );
+
+        $fieldNames = array_map(fn($f) => "'{$f['name']}'", $fieldNames);
+
         return implode(",\n        ", $fieldNames);
     }
 
@@ -87,7 +102,7 @@ abstract class BaseGenerator
         $casts = [];
 
         foreach ($this->fields as $field) {
-            $cast = $this->getCastForType($field['type']);
+            $cast = $this->getCastForType($field);
             if ($cast) {
                 $casts[$field['name']] = $cast;
             }
@@ -96,14 +111,14 @@ abstract class BaseGenerator
         return $casts;
     }
 
-    protected function getCastForType(string $type): ?string
+    protected function getCastForType(array $field): ?string
     {
-        return match ($type) {
+        return match ($field['type']) {
             'boolean', 'bool' => 'boolean',
             'integer', 'int', 'bigInteger', 'smallInteger', 'tinyInteger' => 'integer',
-            'decimal', 'double', 'float' => 'float',
-            'date' => 'date',
-            'datetime', 'dateTime', 'timestamp' => 'datetime',
+            'decimal', 'double', 'float' => 'decimal:' . ($field['precision'] ?? 2),
+            'date' => 'date:Y-m-d',
+            'datetime', 'dateTime', 'timestamp' => 'datetime:Y-m-d H:i:s',
             'json', 'array' => 'array',
             default => null,
         };
@@ -113,23 +128,24 @@ abstract class BaseGenerator
     {
         $rules = [];
 
-        // Required or nullable
-        if ($field['nullable']) {
-            $rules[] = 'nullable';
-        } elseif (!$isUpdate) {
+        if ($isUpdate) {
+            $rules[] = 'sometimes';
+        } elseif (!$field['nullable']) {
             $rules[] = 'required';
         } else {
-            $rules[] = 'sometimes';
+            $rules[] = 'nullable';
         }
 
-        // Type rules
-        $rules[] = $this->getValidationTypeRule($field['type']);
+        $typeRule = $this->getValidationTypeRule($field);
+        if ($typeRule) {
+            $rules[] = $typeRule;
+        }
 
-        // Unique
         if ($field['unique']) {
             $table = $this->modelNameSnakePlural;
+
             if ($isUpdate) {
-                $rules[] = "unique:{$table},{$field['name']},{\$this->{$this->modelNameCamel}->id}";
+                $rules[] = "unique:{$table},{$field['name']},\$this->route('{$this->modelNameCamel}'),id";
             } else {
                 $rules[] = "unique:{$table},{$field['name']}";
             }
@@ -138,18 +154,23 @@ abstract class BaseGenerator
         return "'" . implode('|', array_filter($rules)) . "'";
     }
 
-    protected function getValidationTypeRule(string $type): string
+    protected function getValidationTypeRule(array $field): string
     {
-        return match ($type) {
-            'string', 'text', 'longText', 'mediumText' => 'string|max:255',
+        if ($field['type'] === 'foreignId' && !empty($field['foreign']['model'])) {
+            $table = Str::snake(Str::plural($field['foreign']['model']));
+            return "integer|exists:{$table},id";
+        }
+
+        return match ($field['type']) {
+            'string' => 'string|max:' . ($field['length'] ?? 255),
+            'text', 'longText', 'mediumText' => 'string',
             'integer', 'int', 'bigInteger', 'smallInteger', 'tinyInteger' => 'integer',
             'decimal', 'double', 'float' => 'numeric',
             'boolean', 'bool' => 'boolean',
             'date' => 'date',
             'datetime', 'dateTime', 'timestamp' => 'date',
-            'email' => 'email',
+            'email' => 'email|max:' . ($field['length'] ?? 255),
             'json', 'array' => 'array',
-            'foreignId' => 'integer|exists:' . $this->modelNameSnakePlural . ',id',
             default => 'string',
         };
     }
@@ -159,26 +180,26 @@ abstract class BaseGenerator
         $name = $field['name'];
         $type = $field['type'];
 
-        // Check by name first
-        if (str_contains($name, 'email')) return 'fake()->unique()->safeEmail()';
-        if (str_contains($name, 'name') && str_contains($name, 'first')) return 'fake()->firstName()';
-        if (str_contains($name, 'name') && str_contains($name, 'last')) return 'fake()->lastName()';
-        if (str_contains($name, 'name')) return 'fake()->name()';
-        if (str_contains($name, 'phone')) return 'fake()->phoneNumber()';
-        if (str_contains($name, 'address')) return 'fake()->address()';
-        if (str_contains($name, 'city')) return 'fake()->city()';
-        if (str_contains($name, 'country')) return 'fake()->country()';
-        if (str_contains($name, 'zip') || str_contains($name, 'postal')) return 'fake()->postcode()';
-        if (str_contains($name, 'url') || str_contains($name, 'website')) return 'fake()->url()';
-        if (str_contains($name, 'title')) return 'fake()->sentence(3)';
-        if (str_contains($name, 'description') || str_contains($name, 'content') || str_contains($name, 'body')) return 'fake()->paragraph()';
-        if (str_contains($name, 'price') || str_contains($name, 'amount') || str_contains($name, 'cost')) return 'fake()->randomFloat(2, 10, 1000)';
-        if (str_contains($name, 'quantity') || str_contains($name, 'qty')) return 'fake()->numberBetween(1, 100)';
-        if (str_ends_with($name, '_id')) return 'fake()->numberBetween(1, 10)';
-        if (str_contains($name, 'image') || str_contains($name, 'avatar') || str_contains($name, 'photo')) return 'fake()->imageUrl()';
-        if (str_contains($name, 'slug')) return 'fake()->slug()';
+        if (Str::contains($name, 'email')) return 'fake()->unique()->safeEmail()';
+        if (Str::contains($name, 'name') && Str::contains($name, 'first')) return 'fake()->firstName()';
+        if (Str::contains($name, 'name') && Str::contains($name, 'last')) return 'fake()->lastName()';
+        if (Str::contains($name, 'name')) return 'fake()->name()';
+        if (Str::contains($name, 'phone')) return 'fake()->phoneNumber()';
+        if (Str::contains($name, 'address')) return 'fake()->address()';
+        if (Str::contains($name, 'city')) return 'fake()->city()';
+        if (Str::contains($name, 'country')) return 'fake()->country()';
+        if (Str::contains($name, ['zip', 'postal'])) return 'fake()->postcode()';
+        if (Str::contains($name, ['url', 'website'])) return 'fake()->url()';
+        if (Str::contains($name, 'title')) return 'fake()->sentence(3)';
+        if (Str::contains($name, ['description', 'content', 'body'])) return 'fake()->paragraph()';
+        if (Str::contains($name, ['price', 'amount', 'cost'])) return 'fake()->randomFloat(2, 10, 1000)';
+        if (Str::contains($name, ['quantity', 'qty'])) return 'fake()->numberBetween(1, 100)';
+        if (Str::endsWith($name, '_id') && !empty($field['foreign']['model'])) {
+            return $field['foreign']['model'] . '::factory()';
+        }
+        if (Str::contains($name, ['image', 'avatar', 'photo'])) return 'fake()->imageUrl()';
+        if (Str::contains($name, 'slug')) return 'fake()->slug()';
 
-        // Check by type
         return match ($type) {
             'string' => 'fake()->word()',
             'text', 'longText', 'mediumText' => 'fake()->paragraph()',
@@ -187,9 +208,15 @@ abstract class BaseGenerator
             'boolean', 'bool' => 'fake()->boolean()',
             'date' => 'fake()->date()',
             'datetime', 'dateTime', 'timestamp' => 'fake()->dateTime()',
-            'json', 'array' => '[]',
-            'foreignId' => 'fake()->numberBetween(1, 10)',
+            'json', 'array' => "['key' => fake()->word()]",
             default => 'fake()->word()',
         };
+    }
+
+    protected function validateFieldStructure(array $field): void
+    {
+        if (!isset($field['name'], $field['type'])) {
+            throw new InvalidArgumentException("Field must contain 'name' and 'type'.");
+        }
     }
 }

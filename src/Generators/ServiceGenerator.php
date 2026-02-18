@@ -6,12 +6,19 @@ class ServiceGenerator extends BaseGenerator
 {
     protected bool $useRepository;
     protected int $defaultPagination;
+    protected string $modelNameCamel;
 
-    public function __construct(string $modelName, array $fields = [], bool $useRepository = true, int $defaultPagination = 15)
-    {
+    public function __construct(
+        string $modelName,
+        array $fields = [],
+        bool $useRepository = true,
+        int $defaultPagination = 15
+    ) {
         parent::__construct($modelName, $fields);
+
         $this->useRepository = $useRepository;
         $this->defaultPagination = $defaultPagination;
+        $this->modelNameCamel = lcfirst($modelName);
     }
 
     public function generate(): string
@@ -19,11 +26,9 @@ class ServiceGenerator extends BaseGenerator
         $namespace = config('make-full.namespaces.service', 'App\\Services');
         $modelNamespace = config('make-full.namespaces.model', 'App\\Models');
 
-        if ($this->useRepository) {
-            return $this->generateWithRepository($namespace, $modelNamespace);
-        }
-
-        return $this->generateWithModel($namespace, $modelNamespace);
+        return $this->useRepository
+            ? $this->generateWithRepository($namespace, $modelNamespace)
+            : $this->generateWithModel($namespace, $modelNamespace);
     }
 
     protected function generateWithRepository(string $namespace, string $modelNamespace): string
@@ -31,7 +36,7 @@ class ServiceGenerator extends BaseGenerator
         $repositoryNamespace = config('make-full.namespaces.repository', 'App\\Repositories');
         $searchableFields = $this->getSearchableFields();
 
-        $content = <<<PHP
+        return <<<PHP
 <?php
 
 namespace {$namespace};
@@ -39,6 +44,7 @@ namespace {$namespace};
 use {$modelNamespace}\\{$this->modelName};
 use {$repositoryNamespace}\\{$this->modelName}Repository;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
 
 class {$this->modelName}Service
 {
@@ -46,79 +52,55 @@ class {$this->modelName}Service
         protected {$this->modelName}Repository \$repository
     ) {}
 
-    /**
-     * Search and paginate {$this->modelNamePlural}.
-     *
-     * @param array \$params Search parameters
-     *   - search: string - Search term for {$searchableFields}
-     *   - limit: int - Items per page (default: {$this->defaultPagination})
-     *   - sort: string - Sort field
-     *   - order: string - Sort order (asc/desc)
-     */
-    public function search(array $params = []): LengthAwarePaginator
+    public function search(array \$params = []): LengthAwarePaginator
     {
-        // Se houver search, faz busca; senão, só pagina
-        if(!empty($params['search'])) {
-            return $this->repository->search($params);
-        }
-        // Remove search do array para paginação simples
-        $paramsNoSearch = $params;
-        unset($paramsNoSearch['search']);
-        $paramsNoSearch['limit'] = $params['limit'] ?? $this->defaultPagination;
-        return $this->repository->search($paramsNoSearch);
+        \$params = \$this->normalizeParams(\$params);
+
+        return \$this->repository->search(\$params);
     }
 
-    /**
-     * Get all {$this->modelNamePlural}.
-     */
-    public function all(): \\Illuminate\\Database\\Eloquent\\Collection
+    public function all(): Collection
     {
         return \$this->repository->all();
     }
 
-    /**
-     * Find a {$this->modelName} by ID.
-     */
     public function find(int|string \$id): ?{$this->modelName}
     {
         return \$this->repository->find(\$id);
     }
 
-    /**
-     * Find a {$this->modelName} by ID or fail.
-     */
     public function findOrFail(int|string \$id): {$this->modelName}
     {
         return \$this->repository->findOrFail(\$id);
     }
 
-    /**
-     * Create a new {$this->modelName}.
-     */
     public function create(array \$data): {$this->modelName}
     {
         return \$this->repository->create(\$data);
     }
 
-    /**
-     * Update an existing {$this->modelName}.
-     */
     public function update({$this->modelName} \${$this->modelNameCamel}, array \$data): {$this->modelName}
     {
         return \$this->repository->update(\${$this->modelNameCamel}, \$data);
     }
 
-    /**
-     * Delete a {$this->modelName}.
-     */
     public function delete({$this->modelName} \${$this->modelNameCamel}): bool
     {
         return \$this->repository->delete(\${$this->modelNameCamel});
     }
+
+    protected function normalizeParams(array \$params): array
+    {
+        \$params['limit'] = \$params['limit'] ?? {$this->defaultPagination};
+        \$params['sort'] = \$params['sort'] ?? 'created_at';
+        \$params['order'] = in_array(strtolower(\$params['order'] ?? 'desc'), ['asc', 'desc'])
+            ? strtolower(\$params['order'])
+            : 'desc';
+
+        return \$params;
+    }
 }
 PHP;
-
-        return $content;
     }
 
     protected function generateWithModel(string $namespace, string $modelNamespace): string
@@ -126,83 +108,56 @@ PHP;
         $searchConditions = $this->buildSearchConditions();
         $searchableFields = $this->getSearchableFields();
 
-        $content = <<<PHP
+        return <<<PHP
 <?php
 
 namespace {$namespace};
 
 use {$modelNamespace}\\{$this->modelName};
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
 
 class {$this->modelName}Service
 {
-    /**
-     * Search and paginate {$this->modelNamePlural}.
-     *
-     * @param array \$params Search parameters
-     *   - search: string - Search term for {$searchableFields}
-     *   - limit: int - Items per page (default: {$this->defaultPagination})
-     *   - sort: string - Sort field
-     *   - order: string - Sort order (asc/desc)
-     */
     public function search(array \$params = []): LengthAwarePaginator
     {
+        \$params = \$this->normalizeParams(\$params);
+
         \$query = {$this->modelName}::query();
 
-        // Search filter
         if (!empty(\$params['search'])) {
             \$search = \$params['search'];
+
             \$query->where(function (\$q) use (\$search) {
 {$searchConditions}
             });
         }
 
-        // Sorting
-        \$sortField = \$params['sort'] ?? 'created_at';
-        \$sortOrder = \$params['order'] ?? 'desc';
-        \$query->orderBy(\$sortField, \$sortOrder);
+        \$query->orderBy(\$params['sort'], \$params['order']);
 
-        // Pagination
-        \$limit = \$params['limit'] ?? {$this->defaultPagination};
-
-        return \$query->paginate(\$limit);
+        return \$query->paginate(\$params['limit']);
     }
 
-    /**
-     * Get all {$this->modelNamePlural}.
-     */
-    public function all(): \\Illuminate\\Database\\Eloquent\\Collection
+    public function all(): Collection
     {
         return {$this->modelName}::all();
     }
 
-    /**
-     * Find a {$this->modelName} by ID.
-     */
     public function find(int|string \$id): ?{$this->modelName}
     {
         return {$this->modelName}::find(\$id);
     }
 
-    /**
-     * Find a {$this->modelName} by ID or fail.
-     */
     public function findOrFail(int|string \$id): {$this->modelName}
     {
         return {$this->modelName}::findOrFail(\$id);
     }
 
-    /**
-     * Create a new {$this->modelName}.
-     */
     public function create(array \$data): {$this->modelName}
     {
         return {$this->modelName}::create(\$data);
     }
 
-    /**
-     * Update an existing {$this->modelName}.
-     */
     public function update({$this->modelName} \${$this->modelNameCamel}, array \$data): {$this->modelName}
     {
         \${$this->modelNameCamel}->update(\$data);
@@ -210,17 +165,23 @@ class {$this->modelName}Service
         return \${$this->modelNameCamel}->fresh();
     }
 
-    /**
-     * Delete a {$this->modelName}.
-     */
     public function delete({$this->modelName} \${$this->modelNameCamel}): bool
     {
         return \${$this->modelNameCamel}->delete();
     }
+
+    protected function normalizeParams(array \$params): array
+    {
+        \$params['limit'] = \$params['limit'] ?? {$this->defaultPagination};
+        \$params['sort'] = \$params['sort'] ?? 'created_at';
+        \$params['order'] = in_array(strtolower(\$params['order'] ?? 'desc'), ['asc', 'desc'])
+            ? strtolower(\$params['order'])
+            : 'desc';
+
+        return \$params;
+    }
 }
 PHP;
-
-        return $content;
     }
 
     protected function buildSearchConditions(): string
@@ -255,16 +216,15 @@ PHP;
             }
         }
 
-        if (empty($fields)) {
-            return 'searchable fields';
-        }
-
-        return implode(', ', $fields);
+        return empty($fields)
+            ? 'searchable fields'
+            : implode(', ', $fields);
     }
 
     public function getPath(): string
     {
         $path = config('make-full.paths.service', 'app/Services');
+
         return "{$path}/{$this->modelName}Service.php";
     }
 }

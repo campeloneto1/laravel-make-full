@@ -16,6 +16,7 @@ use Campelo\MakeFull\Generators\ServiceGenerator;
 use Illuminate\Console\Command;
 use Illuminate\Support\Str;
 
+
 class MakeFullCommand extends Command
 {
     protected $signature = 'make:full
@@ -84,42 +85,46 @@ class MakeFullCommand extends Command
     }
 
     protected function parseFields(): void
-    {
-        $fieldsString = $this->option('fields');
+{
+    $fieldsString = $this->option('fields');
 
-        if (empty($fieldsString)) {
-            return;
-        }
-
-        $fields = explode(',', $fieldsString);
-
-        foreach ($fields as $field) {
-            $parts = explode(':', $field);
-            $name = trim($parts[0]);
-            $type = $parts[1] ?? 'string';
-            $modifiers = array_slice($parts, 2);
-
-            $this->fields[] = [
-                'name' => $name,
-                'type' => $type,
-                'nullable' => in_array('nullable', $modifiers),
-                'unique' => in_array('unique', $modifiers),
-                'index' => in_array('index', $modifiers),
-                'default' => $this->extractDefault($modifiers),
-                'foreign' => $this->extractForeign($name, $type),
-            ];
-        }
+    if (empty($fieldsString)) {
+        return;
     }
+
+    $fields = explode(',', $fieldsString);
+
+    foreach ($fields as $field) {
+        $parts = explode(':', trim($field));
+
+        $name = $parts[0];
+        $type = $parts[1] ?? 'string';
+        $modifiers = array_slice($parts, 2);
+
+        $this->fields[] = [
+            'name' => $name,
+            'type' => $type,
+            'nullable' => in_array('nullable', $modifiers),
+            'unique' => in_array('unique', $modifiers),
+            'index' => in_array('index', $modifiers),
+            'length' => $this->extractNumericModifier($modifiers, 'length'),
+            'precision' => $this->extractNumericModifier($modifiers, 'precision'),
+            'default' => $this->extractDefault($modifiers),
+            'foreign' => $this->extractForeign($name, $type),
+        ];
+    }
+}
+
 
     protected function extractDefault(array $modifiers): ?string
-    {
-        foreach ($modifiers as $mod) {
-            if (str_starts_with($mod, 'default(')) {
-                return trim($mod, 'default()');
-            }
+{
+    foreach ($modifiers as $mod) {
+        if (preg_match('/default\((.*?)\)/', $mod, $matches)) {
+            return $matches[1];
         }
-        return null;
     }
+    return null;
+}
 
     protected function extractForeign(string $name, string $type): ?array
     {
@@ -354,4 +359,14 @@ class MakeFullCommand extends Command
         $this->line("  - Run: php artisan migrate");
         $this->line("  - Register policy in AuthServiceProvider (if not using auto-discovery)");
     }
+
+    protected function extractNumericModifier(array $modifiers, string $key): ?int
+{
+    foreach ($modifiers as $mod) {
+        if (str_starts_with($mod, "{$key}(")) {
+            return (int) trim($mod, "{$key}()");
+        }
+    }
+    return null;
+}
 }

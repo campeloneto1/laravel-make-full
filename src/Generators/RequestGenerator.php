@@ -4,28 +4,39 @@ namespace Campelo\MakeFull\Generators;
 
 class RequestGenerator extends BaseGenerator
 {
-    protected string $type; // 'Store' or 'Update'
+    protected string $type;
+    protected string $modelNameCamel;
+    protected string $modelNameSnake;
 
     public function __construct(string $modelName, string $type, array $fields = [])
     {
         parent::__construct($modelName, $fields);
+
         $this->type = $type;
+        $this->modelNameCamel = lcfirst($modelName);
+        $this->modelNameSnake = strtolower(preg_replace('/(?<!^)[A-Z]/', '_$0', $modelName));
     }
 
     public function generate(): string
     {
         $namespace = config('make-full.namespaces.request', 'App\\Http\\Requests');
         $className = "{$this->type}{$this->modelName}Request";
-        $rules = $this->buildRules();
+
         $isUpdate = $this->type === 'Update';
+        $rules = $this->buildRules();
+        $uses = [];
+
+        if ($this->hasUniqueField()) {
+            $uses[] = "use Illuminate\\Validation\\Rule;";
+        }
 
         $modelProperty = '';
-        $resolveMethod = '';
-
         if ($isUpdate) {
+            $modelNamespace = $this->getModelNamespace();
+
             $modelProperty = <<<PHP
 
-    protected ?\\{$this->getModelNamespace()}\\{$this->modelName} \${$this->modelNameCamel} = null;
+    protected ?\\{$modelNamespace}\\{$this->modelName} \${$this->modelNameCamel};
 
     protected function prepareForValidation(): void
     {
@@ -34,29 +45,26 @@ class RequestGenerator extends BaseGenerator
 PHP;
         }
 
-        $content = <<<PHP
+        $usesStr = implode("\n", $uses);
+
+        return <<<PHP
 <?php
 
 namespace {$namespace};
 
 use Illuminate\Foundation\Http\FormRequest;
+{$usesStr}
 
 class {$className} extends FormRequest
 {{$modelProperty}
 
-    /**
-     * Determine if the user is authorized to make this request.
-     */
     public function authorize(): bool
     {
         return true;
+        // Exemplo:
+        // return \$this->user()->can('{$this->type}{$this->modelName}', {$this->modelName}::class);
     }
 
-    /**
-     * Get the validation rules that apply to the request.
-     *
-     * @return array<string, \\Illuminate\\Contracts\\Validation\\ValidationRule|array<mixed>|string>
-     */
     public function rules(): array
     {
         return [
@@ -65,8 +73,6 @@ class {$className} extends FormRequest
     }
 }
 PHP;
-
-        return $content;
     }
 
     protected function buildRules(): string
@@ -90,36 +96,38 @@ PHP;
     {
         $rules = [];
 
-        // Required / Nullable / Sometimes
+        // Required logic
+        if ($isUpdate) {
+            $rules[] = 'sometimes';
+        }
+
+        if (!$field['nullable'] && !$isUpdate) {
+            $rules[] = 'required';
+        }
+
         if ($field['nullable']) {
             $rules[] = 'nullable';
-        } elseif ($isUpdate) {
-            $rules[] = 'sometimes';
-            $rules[] = 'required';
-        } else {
-            $rules[] = 'required';
         }
 
         // Type rule
-        $typeRule = $this->getTypeRule($field);
-        if ($typeRule) {
+        if ($typeRule = $this->getTypeRule($field)) {
             $rules[] = $typeRule;
         }
 
+        $table = $this->modelNameSnakePlural;
+
         // Unique
-        if ($field['unique']) {
-            $table = $this->modelNameSnakePlural;
+        if (!empty($field['unique'])) {
             if ($isUpdate) {
-                return "[\n                '" . implode("',\n                '", $rules) . "',\n                \\Illuminate\\Validation\\Rule::unique('{$table}', '{$field['name']}')->ignore(\$this->{$this->modelNameCamel}?->id),\n            ]";
-            } else {
-                $rules[] = "unique:{$table},{$field['name']}";
+                return "[\n                '" . implode("',\n                '", $rules) . "',\n                Rule::unique('{$table}', '{$field['name']}')->ignore(\$this->{$this->modelNameCamel}?->getKey()),\n            ]";
             }
+
+            $rules[] = "unique:{$table},{$field['name']}";
         }
 
-        // Foreign key
-        if ($field['foreign']) {
-            $table = $field['foreign']['table'];
-            $rules[] = "exists:{$table},id";
+        // Foreign
+        if (!empty($field['foreign'])) {
+            $rules[] = "exists:{$field['foreign']['table']},id";
         }
 
         return "'" . implode('|', $rules) . "'";
@@ -130,10 +138,10 @@ PHP;
         $type = $field['type'];
         $name = $field['name'];
 
-        // Check by name first
         if (str_contains($name, 'email')) {
             return 'email';
         }
+
         if (str_contains($name, 'url') || str_contains($name, 'website')) {
             return 'url';
         }
@@ -152,6 +160,17 @@ PHP;
         };
     }
 
+    protected function hasUniqueField(): bool
+    {
+        foreach ($this->fields as $field) {
+            if (!empty($field['unique'])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     protected function getModelNamespace(): string
     {
         return config('make-full.namespaces.model', 'App\\Models');
@@ -160,6 +179,7 @@ PHP;
     public function getPath(): string
     {
         $path = config('make-full.paths.request', 'app/Http/Requests');
+
         return "{$path}/{$this->type}{$this->modelName}Request.php";
     }
 }

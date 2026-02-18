@@ -5,11 +5,17 @@ namespace Campelo\MakeFull\Generators;
 class RepositoryGenerator extends BaseGenerator
 {
     protected int $defaultPagination;
+    protected string $modelNameCamel;
 
-    public function __construct(string $modelName, array $fields = [], int $defaultPagination = 15)
-    {
+    public function __construct(
+        string $modelName,
+        array $fields = [],
+        int $defaultPagination = 15
+    ) {
         parent::__construct($modelName, $fields);
+
         $this->defaultPagination = $defaultPagination;
+        $this->modelNameCamel = lcfirst($modelName);
     }
 
     public function generate(): string
@@ -17,9 +23,10 @@ class RepositoryGenerator extends BaseGenerator
         $namespace = config('make-full.namespaces.repository', 'App\\Repositories');
         $modelNamespace = config('make-full.namespaces.model', 'App\\Models');
         $searchConditions = $this->buildSearchConditions();
+        $fieldFilters = $this->buildFieldFilters();
         $searchableFields = $this->getSearchableFields();
 
-        $content = <<<PHP
+        return <<<PHP
 <?php
 
 namespace {$namespace};
@@ -34,76 +41,52 @@ class {$this->modelName}Repository
         protected {$this->modelName} \$model
     ) {}
 
-    /**
-     * Search and paginate {$this->modelNamePlural}.
-     *
-     * @param array \$params Search parameters
-     *   - search: string - Search term for {$searchableFields}
-     *   - limit: int - Items per page (default: {$this->defaultPagination})
-     *   - sort: string - Sort field
-     *   - order: string - Sort order (asc/desc)
-     */
     public function search(array \$params = []): LengthAwarePaginator
     {
+        \$params = \$this->normalizeParams(\$params);
+
         \$query = \$this->model->newQuery();
 
-        // Search filter
+        // Search
         if (!empty(\$params['search'])) {
             \$search = \$params['search'];
+
             \$query->where(function (\$q) use (\$search) {
 {$searchConditions}
             });
         }
 
-        // Individual field filters
-{$this->buildFieldFilters()}
+        // Field Filters
+{$fieldFilters}
 
         // Sorting
-        \$sortField = \$params['sort'] ?? 'created_at';
-        \$sortOrder = \$params['order'] ?? 'desc';
-        \$query->orderBy(\$sortField, \$sortOrder);
+        if (in_array(\$params['sort'], \$this->allowedSorts())) {
+            \$query->orderBy(\$params['sort'], \$params['order']);
+        }
 
-        // Pagination
-        \$limit = \$params['limit'] ?? {$this->defaultPagination};
-
-        return \$query->paginate(\$limit);
+        return \$query->paginate(\$params['limit']);
     }
 
-    /**
-     * Get all {$this->modelNamePlural}.
-     */
     public function all(): Collection
     {
         return \$this->model->all();
     }
 
-    /**
-     * Find a {$this->modelName} by ID.
-     */
     public function find(int|string \$id): ?{$this->modelName}
     {
         return \$this->model->find(\$id);
     }
 
-    /**
-     * Find a {$this->modelName} by ID or fail.
-     */
     public function findOrFail(int|string \$id): {$this->modelName}
     {
         return \$this->model->findOrFail(\$id);
     }
 
-    /**
-     * Create a new {$this->modelName}.
-     */
     public function create(array \$data): {$this->modelName}
     {
         return \$this->model->create(\$data);
     }
 
-    /**
-     * Update an existing {$this->modelName}.
-     */
     public function update({$this->modelName} \${$this->modelNameCamel}, array \$data): {$this->modelName}
     {
         \${$this->modelNameCamel}->update(\$data);
@@ -111,33 +94,42 @@ class {$this->modelName}Repository
         return \${$this->modelNameCamel}->fresh();
     }
 
-    /**
-     * Delete a {$this->modelName}.
-     */
     public function delete({$this->modelName} \${$this->modelNameCamel}): bool
     {
         return \${$this->modelNameCamel}->delete();
     }
 
-    /**
-     * Find by a specific field.
-     */
     public function findBy(string \$field, mixed \$value): ?{$this->modelName}
     {
         return \$this->model->where(\$field, \$value)->first();
     }
 
-    /**
-     * Get records where field matches value.
-     */
     public function getBy(string \$field, mixed \$value): Collection
     {
         return \$this->model->where(\$field, \$value)->get();
     }
+
+    protected function normalizeParams(array \$params): array
+    {
+        \$params['limit'] = \$params['limit'] ?? {$this->defaultPagination};
+        \$params['sort'] = \$params['sort'] ?? 'created_at';
+        \$params['order'] = in_array(strtolower(\$params['order'] ?? 'desc'), ['asc', 'desc'])
+            ? strtolower(\$params['order'])
+            : 'desc';
+
+        return \$params;
+    }
+
+    protected function allowedSorts(): array
+    {
+        return [
+            'id',
+            'created_at',
+            'updated_at',
+        ];
+    }
 }
 PHP;
-
-        return $content;
     }
 
     protected function buildSearchConditions(): string
@@ -167,6 +159,7 @@ PHP;
 
         foreach ($this->fields as $field) {
             $name = $field['name'];
+
             $filters[] = <<<PHP
         if (isset(\$params['{$name}'])) {
             \$query->where('{$name}', \$params['{$name}']);
@@ -175,7 +168,7 @@ PHP;
         }
 
         if (empty($filters)) {
-            return "        // Add individual field filters";
+            return "        // Add field filters here";
         }
 
         return implode("\n\n", $filters);
@@ -192,16 +185,15 @@ PHP;
             }
         }
 
-        if (empty($fields)) {
-            return 'searchable fields';
-        }
-
-        return implode(', ', $fields);
+        return empty($fields)
+            ? 'searchable fields'
+            : implode(', ', $fields);
     }
 
     public function getPath(): string
     {
         $path = config('make-full.paths.repository', 'app/Repositories');
+
         return "{$path}/{$this->modelName}Repository.php";
     }
 }
