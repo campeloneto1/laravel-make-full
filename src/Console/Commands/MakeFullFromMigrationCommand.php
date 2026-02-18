@@ -1,4 +1,3 @@
-
 <?php
 
 namespace Campelo\MakeFull\Console\Commands;
