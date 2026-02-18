@@ -59,7 +59,9 @@ class MakeFullFromMigrationCommand extends Command
 
         // 🔥 Registrar policies automaticamente ao final
         $this->info('Registrando policies automaticamente...');
-        Artisan::call('make-full:register-policies');
+        if (version_compare(app()->version(), '11.0.0', '<')) {
+            Artisan::call('make-full:register-policies');
+        }
         $this->line(Artisan::output());
 
         $this->info('Processamento finalizado com sucesso.');

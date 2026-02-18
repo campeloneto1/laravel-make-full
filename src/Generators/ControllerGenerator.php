@@ -30,21 +30,23 @@ class ControllerGenerator extends BaseGenerator
         $modelNamespace = config('make-full.namespaces.model', 'App\\Models');
 
         return <<<PHP
-<?php
+    <?php
 
-namespace {$namespace};
+    namespace {$namespace};
 
-use {$modelNamespace}\\{$this->modelName};
-use {$serviceNamespace}\\{$this->modelName}Service;
-use {$resourceNamespace}\\{$this->modelName}Resource;
-use {$requestNamespace}\\Store{$this->modelName}Request;
-use {$requestNamespace}\\Update{$this->modelName}Request;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+    use {$modelNamespace}\{$this->modelName};
+    use {$serviceNamespace}\{$this->modelName}Service;
+    use {$resourceNamespace}\{$this->modelName}Resource;
+    use {$requestNamespace}\Store{$this->modelName}Request;
+    use {$requestNamespace}\Update{$this->modelName}Request;
+    use Illuminate\Http\JsonResponse;
+    use Illuminate\Http\Request;
+    use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+    use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 
-class {$this->modelName}Controller extends Controller
-{
+    class {$this->modelName}Controller extends Controller
+    {
+        use AuthorizesRequests;
     public function __construct(
         protected {$this->modelName}Service \$service
     ) {}
