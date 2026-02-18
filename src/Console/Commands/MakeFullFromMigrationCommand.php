@@ -3,145 +3,173 @@
 namespace Campelo\MakeFull\Console\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Str;
 
 class MakeFullFromMigrationCommand extends Command
 {
+    protected $signature = 'make:full-from-migration 
+                            {--path= : Caminho das migrations (padrão: database/migrations)}';
 
-    protected $signature = 'make:full-from-migration {--path= : Caminho das migrations (padrão: database/migrations)}';
     protected $description = 'Gera Request, Resource, Controller, Service, Repository e Policy para todas as migrations do projeto';
 
-    public function handle()
+    public function handle(): int
     {
         $path = $this->option('path') ?: base_path('database/migrations');
 
         if (!is_dir($path)) {
-            $this->error('Diretório de migrations não encontrado: ' . $path);
-            return 1;
+            $this->error("Diretório de migrations não encontrado: {$path}");
+            return self::FAILURE;
         }
 
         $files = glob($path . '/*.php');
+
         if (empty($files)) {
-            $this->error('Nenhuma migration encontrada em: ' . $path);
-            return 1;
+            $this->error("Nenhuma migration encontrada em: {$path}");
+            return self::FAILURE;
         }
 
-        // 1. Coletar informações de todas as migrations
-        $migrations = [];
-        foreach ($files as $file) {
-            $migrationData = $this->extractMigrationFields($file);
-            if ($migrationData) {
-                $migrations[] = $migrationData;
-            }
+        $migrations = $this->collectMigrations($files);
+
+        if (empty($migrations)) {
+            $this->warn('Nenhuma migration válida encontrada.');
+            return self::SUCCESS;
         }
 
-        // 2. Detectar tabelas pivô (pivot)
-        $pivotRelations = [];
         foreach ($migrations as $migration) {
-            // Pivot: tabela só com 2 FKs e sem outros campos
-            if (count($migration['relations'] ?? []) === 2 && count($migration['fields'] ?? []) === 2) {
-                $models = array_map(fn($rel) => $rel['related'], $migration['relations']);
-                $pivotTable = $migration['table'] ?? '';
-                // Adiciona belongsToMany para ambos os models
-                $pivotRelations[$models[0]][] = [
-                    'type' => 'belongsToMany',
-                    'related' => $models[1],
-                    'pivot' => $pivotTable,
-                ];
-                $pivotRelations[$models[1]][] = [
-                    'type' => 'belongsToMany',
-                    'related' => $models[0],
-                    'pivot' => $pivotTable,
-                ];
-            }
-        }
 
-        // 3. Gerar arquivos normalmente, mas passando as relações belongsToMany detectadas
-        foreach ($migrations as $migration) {
-            $this->info('Processando migration: ' . ($migration['table'] ?? $migration['model']));
-            $modelName = $migration['model'];
-            // Remove campos duplicados e só usa os da migration atual
-            $fields = array_values(array_unique($migration['fields'] ?? []));
-            $fieldsString = implode(',', $fields);
-            // Remove relações duplicadas
-            $relations = array_values(array_unique($migration['relations'] ?? [], SORT_REGULAR));
-            // Adiciona belongsToMany se houver, mas só para o model atual
-            $customRelations = $relations;
-            if (isset($pivotRelations[$modelName])) {
-                foreach ($pivotRelations[$modelName] as $pivotRel) {
-                    if (!in_array($pivotRel, $customRelations, true)) {
-                        $customRelations[] = $pivotRel;
-                    }
-                }
-            }
-            config(['make-full._relations' => $customRelations]);
-            // Chama o generator apenas com os campos da migration atual
-            $this->call('make:full', [
-                'name' => $modelName,
-                '--fields' => $fieldsString,
+            $this->info("Gerando estrutura para: {$migration['model']}");
+
+            // 🔥 Garantir isolamento total
+            config()->offsetUnset('make-full._relations');
+
+            Artisan::call('make:full', [
+                'name' => $migration['model'],
+                '--fields' => $migration['fieldsString'],
                 '--no-migration' => true,
             ]);
-            config(['make-full._relations' => null]);
+
+            $this->line(Artisan::output());
         }
 
-        $this->info('Processamento de todas as migrations finalizado.');
-        return 0;
+        $this->info('Processamento finalizado com sucesso.');
+        return self::SUCCESS;
     }
 
     /**
-     * Extrai o nome do model e os campos da migration.
-     * Retorna ['model' => 'User', 'fieldsString' => 'name:string,email:string:unique']
+     * Coleta todas migrations válidas
+     */
+    protected function collectMigrations(array $files): array
+    {
+        $migrations = [];
+
+        foreach ($files as $file) {
+            $data = $this->extractMigrationFields($file);
+
+            if ($data) {
+                $migrations[] = $data;
+            }
+        }
+
+        return $migrations;
+    }
+
+    /**
+     * Extrai nome do model, campos e relações
      */
     protected function extractMigrationFields(string $file): ?array
     {
         $content = file_get_contents($file);
-        if (!preg_match('/Schema::create\([\'\"](\w+)[\'\"]/', $content, $matches)) {
+
+        if (!preg_match('/Schema::create\([\'"](\w+)[\'"]/', $content, $match)) {
             return null;
         }
-        $table = $matches[1];
 
-        // 👇 IGNORAR TABELAS PADRÃO DO LARAVEL (agora via config)
-        $ignoreTables = config('make-full.ignore_tables', []);
+        $table = $match[1];
+
+        // Ignorar tabelas padrão
+        $ignoreTables = config('make-full.ignore_tables', [
+            'migrations',
+            'password_resets',
+            'failed_jobs',
+            'personal_access_tokens',
+            'sessions',
+            'cache',
+            'cache_locks',
+            'jobs',
+            'job_batches'
+        ]);
+
         if (in_array($table, $ignoreTables, true)) {
             return null;
         }
 
-        $model = ucfirst(\Illuminate\Support\Str::singular(\Illuminate\Support\Str::studly($table)));
+        $model = Str::studly(Str::singular($table));
 
-        // Regex para pegar campos comuns e FKs
-        preg_match_all('/\$table->(\w+)\([\'\"](\w+)[\'\"](,\s*\d+)?\)([^;]*)/', $content, $cols, PREG_SET_ORDER);
+        preg_match_all(
+            '/\$table->(\w+)\([\'"](\w+)[\'"]?(?:,\s*([\d,\s]+))?\)([^;]*)/',
+            $content,
+            $columns,
+            PREG_SET_ORDER
+        );
+
         $fields = [];
         $relations = [];
-        foreach ($cols as $col) {
-            $type = $col[1];
-            $name = $col[2];
-            $extra = $col[4] ?? '';
-            $modifiers = [];
-            if (strpos($extra, 'nullable') !== false) $modifiers[] = 'nullable';
-            if (strpos($extra, 'unique') !== false) $modifiers[] = 'unique';
-            if (strpos($extra, 'index') !== false) $modifiers[] = 'index';
-            if (preg_match('/default\(([^)]+)\)/', $extra, $def)) $modifiers[] = 'default(' . trim($def[1], "'\"") . ')';
 
-            // Detecta FK: foreignId + constrained ou references
-            $isForeign = false;
-            if ($type === 'foreignId' && (strpos($extra, 'constrained') !== false || strpos($extra, 'references') !== false)) {
-                $isForeign = true;
-                $relatedModel = ucfirst(\Illuminate\Support\Str::studly(str_replace('_id', '', $name)));
+        foreach ($columns as $column) {
+
+            $type = $column[1];
+            $name = $column[2] ?? null;
+            $extra = $column[4] ?? '';
+
+            if (!$name) {
+                continue;
+            }
+
+            // Ignorar campos automáticos
+            if (in_array($name, ['id', 'created_at', 'updated_at', 'deleted_at'], true)) {
+                continue;
+            }
+
+            $modifiers = [];
+
+            if (str_contains($extra, 'nullable')) $modifiers[] = 'nullable';
+            if (str_contains($extra, 'unique')) $modifiers[] = 'unique';
+            if (str_contains($extra, 'index')) $modifiers[] = 'index';
+
+            if (preg_match('/default\(([^)]+)\)/', $extra, $def)) {
+                $modifiers[] = 'default(' . trim($def[1], "'\"") . ')';
+            }
+
+            // Detectar foreign key
+            if ($type === 'foreignId' || str_ends_with($name, '_id')) {
+                $relatedModel = Str::studly(str_replace('_id', '', $name));
+
                 $relations[] = [
                     'field' => $name,
                     'related' => $relatedModel,
                 ];
             }
-            $fields[] = $name . ':' . $type . ($modifiers ? ':' . implode(':', $modifiers) : '');
+
+            $fieldString = $name . ':' . $type;
+
+            if (!empty($modifiers)) {
+                $fieldString .= ':' . implode(':', $modifiers);
+            }
+
+            $fields[] = $fieldString;
         }
-        if (empty($fields)) return null;
-        // Passa os relacionamentos para uso posterior (ex: generator pode usar via config ou option)
+
+        if (empty($fields)) {
+            return null;
+        }
+
         return [
             'model' => $model,
             'table' => $table,
-            'fieldsString' => implode(',', $fields),
-            'fields' => $fields,
-            'relations' => $relations,
+            'fields' => array_values(array_unique($fields)),
+            'fieldsString' => implode(',', array_unique($fields)),
+            'relations' => array_values(array_unique($relations, SORT_REGULAR)),
         ];
     }
 }
-

@@ -14,32 +14,31 @@ use Campelo\MakeFull\Generators\RouteGenerator;
 use Campelo\MakeFull\Generators\SeederGenerator;
 use Campelo\MakeFull\Generators\ServiceGenerator;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
-
 
 class MakeFullCommand extends Command
 {
     protected $signature = 'make:full
-                            {name : The name of the model (e.g., User, BlogPost)}
-                            {--fields= : Fields definition (e.g., "name:string,email:string:unique,age:integer:nullable")}
-                            {--no-model : Skip model generation}
-                            {--no-controller : Skip controller generation}
-                            {--no-service : Skip service generation}
-                            {--no-repository : Skip repository generation}
-                            {--no-resource : Skip resource generation}
-                            {--no-requests : Skip request generation}
-                            {--no-policy : Skip policy generation}
-                            {--no-migration : Skip migration generation}
-                            {--no-factory : Skip factory generation}
-                            {--no-seeder : Skip seeder generation}
-                            {--no-routes : Skip routes generation}
-                            {--soft-deletes : Add soft deletes to model}
-                            {--uuid : Use UUID as primary key}
-                            {--api : Generate API controller (default)}
-                            {--web : Generate web controller instead of API}
-                            {--force : Overwrite existing files}';
+        {name : The name of the model (e.g., User, BlogPost)}
+        {--fields= : Fields definition (e.g., "name:string,email:string:unique")}
+        {--no-model}
+        {--no-controller}
+        {--no-service}
+        {--no-repository}
+        {--no-resource}
+        {--no-requests}
+        {--no-policy}
+        {--no-migration}
+        {--no-factory}
+        {--no-seeder}
+        {--no-routes}
+        {--soft-deletes}
+        {--uuid}
+        {--web}
+        {--force}';
 
-    protected $description = 'Generate complete CRUD structure: Model, Controller, Service, Repository, Resource, Requests, Policy, Migration, Factory, Seeder';
+    protected $description = 'Generate complete CRUD structure';
 
     protected array $fields = [];
     protected string $modelName;
@@ -50,253 +49,258 @@ class MakeFullCommand extends Command
 
     public function handle(): int
     {
+        // 🔥 Reset total para evitar vazamento de estado
+        $this->fields = [];
+
         $this->modelName = Str::studly($this->argument('name'));
         $this->modelNamePlural = Str::plural($this->modelName);
         $this->modelNameSnake = Str::snake($this->modelName);
         $this->modelNameSnakePlural = Str::snake($this->modelNamePlural);
         $this->tableName = $this->modelNameSnakePlural;
 
-        // Parse fields
         $this->parseFields();
 
         $this->info("Generating full CRUD structure for: {$this->modelName}");
         $this->newLine();
 
-        // Generate each file
-        $this->generateModel();
-        $this->generateMigration();
-        $this->generateController();
-        $this->generateService();
-        $this->generateRepository();
-        $this->generateResource();
-        $this->generateRequests();
-        $this->generatePolicy();
-        $this->generateFactory();
-        $this->generateSeeder();
-        $this->generateRoutes();
+        $this->runGenerators();
 
         $this->newLine();
         $this->info('All files generated successfully!');
 
-        // Show summary
         $this->showSummary();
 
-        return Command::SUCCESS;
+        return self::SUCCESS;
+    }
+
+    protected function runGenerators(): void
+    {
+        foreach ([
+            'generateModel',
+            'generateMigration',
+            'generateController',
+            'generateService',
+            'generateRepository',
+            'generateResource',
+            'generateRequests',
+            'generatePolicy',
+            'generateFactory',
+            'generateSeeder',
+            'generateRoutes',
+        ] as $method) {
+            $this->{$method}();
+        }
     }
 
     protected function parseFields(): void
-{
-    $fieldsString = $this->option('fields');
+    {
+        $this->fields = []; // 🔥 blindagem
 
-    if (empty($fieldsString)) {
-        return;
-    }
+        $fieldsString = $this->option('fields');
 
-    $fields = explode(',', $fieldsString);
+        if (empty($fieldsString)) {
+            return;
+        }
 
-    foreach ($fields as $field) {
-        $parts = explode(':', trim($field));
+        foreach (explode(',', $fieldsString) as $field) {
 
-        $name = $parts[0];
-        $type = $parts[1] ?? 'string';
-        $modifiers = array_slice($parts, 2);
+            $parts = explode(':', trim($field));
+            $name = $parts[0] ?? null;
 
-        $this->fields[] = [
-            'name' => $name,
-            'type' => $type,
-            'nullable' => in_array('nullable', $modifiers),
-            'unique' => in_array('unique', $modifiers),
-            'index' => in_array('index', $modifiers),
-            'length' => $this->extractNumericModifier($modifiers, 'length'),
-            'precision' => $this->extractNumericModifier($modifiers, 'precision'),
-            'default' => $this->extractDefault($modifiers),
-            'foreign' => $this->extractForeign($name, $type),
-        ];
-    }
-}
+            if (!$name) {
+                continue;
+            }
 
+            // 🔥 Evitar campos duplicados
+            if (collect($this->fields)->contains('name', $name)) {
+                continue;
+            }
 
-    protected function extractDefault(array $modifiers): ?string
-{
-    foreach ($modifiers as $mod) {
-        if (preg_match('/default\((.*?)\)/', $mod, $matches)) {
-            return $matches[1];
+            $type = $parts[1] ?? 'string';
+            $modifiers = array_slice($parts, 2);
+
+            $this->fields[] = [
+                'name' => $name,
+                'type' => $type,
+                'nullable' => in_array('nullable', $modifiers, true),
+                'unique' => in_array('unique', $modifiers, true),
+                'index' => in_array('index', $modifiers, true),
+                'length' => $this->extractNumericModifier($modifiers, 'length'),
+                'precision' => $this->extractNumericModifier($modifiers, 'precision'),
+                'default' => $this->extractDefault($modifiers),
+                'foreign' => $this->extractForeign($name, $type),
+            ];
         }
     }
-    return null;
-}
+
+    protected function extractNumericModifier(array $modifiers, string $key): ?int
+    {
+        foreach ($modifiers as $mod) {
+            if (preg_match("/{$key}\((\d+)\)/", $mod, $matches)) {
+                return (int) $matches[1];
+            }
+        }
+        return null;
+    }
+
+    protected function extractDefault(array $modifiers): ?string
+    {
+        foreach ($modifiers as $mod) {
+            if (preg_match('/default\((.*?)\)/', $mod, $matches)) {
+                return $matches[1];
+            }
+        }
+        return null;
+    }
 
     protected function extractForeign(string $name, string $type): ?array
     {
-        if ($type === 'foreignId' || str_ends_with($name, '_id')) {
+        if ($type === 'foreignId' || (str_ends_with($name, '_id') && $name !== 'id')) {
+
             $relatedModel = Str::studly(str_replace('_id', '', $name));
-            $relatedTable = Str::snake(Str::plural($relatedModel));
+
             return [
                 'model' => $relatedModel,
-                'table' => $relatedTable,
+                'table' => Str::snake(Str::plural($relatedModel)),
             ];
         }
+
         return null;
     }
 
     protected function generateModel(): void
     {
-        if ($this->option('no-model')) {
-            return;
-        }
+        if ($this->option('no-model')) return;
 
-        $generator = new ModelGenerator(
-            $this->modelName,
-            $this->fields,
-            $this->option('soft-deletes') || config('make-full.soft_deletes'),
-            $this->option('uuid') || config('make-full.uuid')
+        $this->generateFile(
+            new ModelGenerator(
+                $this->modelName,
+                $this->fields,
+                $this->option('soft-deletes') || config('make-full.soft_deletes'),
+                $this->option('uuid') || config('make-full.uuid')
+            ),
+            'Model'
         );
-
-        $this->generateFile($generator, 'Model');
     }
 
     protected function generateMigration(): void
     {
-        if ($this->option('no-migration')) {
-            return;
-        }
+        if ($this->option('no-migration')) return;
 
-        $generator = new MigrationGenerator(
-            $this->modelName,
-            $this->tableName,
-            $this->fields,
-            $this->option('soft-deletes') || config('make-full.soft_deletes'),
-            $this->option('uuid') || config('make-full.uuid')
+        $this->generateFile(
+            new MigrationGenerator(
+                $this->modelName,
+                $this->tableName,
+                $this->fields,
+                $this->option('soft-deletes') || config('make-full.soft_deletes'),
+                $this->option('uuid') || config('make-full.uuid')
+            ),
+            'Migration'
         );
-
-        $this->generateFile($generator, 'Migration');
     }
 
     protected function generateController(): void
     {
-        if ($this->option('no-controller')) {
-            return;
-        }
+        if ($this->option('no-controller')) return;
 
-        $isApi = !$this->option('web');
-
-        $generator = new ControllerGenerator(
-            $this->modelName,
-            $this->fields,
-            $isApi,
-            config('make-full.use_repository', true)
+        $this->generateFile(
+            new ControllerGenerator(
+                $this->modelName,
+                $this->fields,
+                !$this->option('web'),
+                config('make-full.use_repository', true)
+            ),
+            'Controller'
         );
-
-        $this->generateFile($generator, 'Controller');
     }
 
     protected function generateService(): void
     {
-        if ($this->option('no-service')) {
-            return;
-        }
+        if ($this->option('no-service')) return;
 
-        $generator = new ServiceGenerator(
-            $this->modelName,
-            $this->fields,
-            config('make-full.use_repository', true),
-            config('make-full.default_pagination', 15)
+        $this->generateFile(
+            new ServiceGenerator(
+                $this->modelName,
+                $this->fields,
+                config('make-full.use_repository', true),
+                config('make-full.default_pagination', 15)
+            ),
+            'Service'
         );
-
-        $this->generateFile($generator, 'Service');
     }
 
     protected function generateRepository(): void
     {
-        if ($this->option('no-repository') || !config('make-full.use_repository', true)) {
-            return;
-        }
+        if ($this->option('no-repository') || !config('make-full.use_repository', true)) return;
 
-        $generator = new RepositoryGenerator(
-            $this->modelName,
-            $this->fields,
-            config('make-full.default_pagination', 15)
+        $this->generateFile(
+            new RepositoryGenerator(
+                $this->modelName,
+                $this->fields,
+                config('make-full.default_pagination', 15)
+            ),
+            'Repository'
         );
-
-        $this->generateFile($generator, 'Repository');
     }
 
     protected function generateResource(): void
     {
-        if ($this->option('no-resource')) {
-            return;
-        }
+        if ($this->option('no-resource')) return;
 
-        $generator = new ResourceGenerator(
-            $this->modelName,
-            $this->fields
+        $this->generateFile(
+            new ResourceGenerator($this->modelName, $this->fields),
+            'Resource'
         );
-
-        $this->generateFile($generator, 'Resource');
     }
 
     protected function generateRequests(): void
     {
-        if ($this->option('no-requests')) {
-            return;
-        }
+        if ($this->option('no-requests')) return;
 
-        // Store Request
-        $storeGenerator = new RequestGenerator(
-            $this->modelName,
-            'Store',
-            $this->fields
+        $this->generateFile(
+            new RequestGenerator($this->modelName, 'Store', $this->fields),
+            'StoreRequest'
         );
-        $this->generateFile($storeGenerator, 'StoreRequest');
 
-        // Update Request
-        $updateGenerator = new RequestGenerator(
-            $this->modelName,
-            'Update',
-            $this->fields
+        $this->generateFile(
+            new RequestGenerator($this->modelName, 'Update', $this->fields),
+            'UpdateRequest'
         );
-        $this->generateFile($updateGenerator, 'UpdateRequest');
     }
 
     protected function generatePolicy(): void
     {
-        if ($this->option('no-policy')) {
-            return;
-        }
+        if ($this->option('no-policy')) return;
 
-        $generator = new PolicyGenerator($this->modelName);
-        $this->generateFile($generator, 'Policy');
+        $this->generateFile(
+            new PolicyGenerator($this->modelName),
+            'Policy'
+        );
     }
 
     protected function generateFactory(): void
     {
-        if ($this->option('no-factory')) {
-            return;
-        }
+        if ($this->option('no-factory')) return;
 
-        $generator = new FactoryGenerator(
-            $this->modelName,
-            $this->fields
+        $this->generateFile(
+            new FactoryGenerator($this->modelName, $this->fields),
+            'Factory'
         );
-
-        $this->generateFile($generator, 'Factory');
     }
 
     protected function generateSeeder(): void
     {
-        if ($this->option('no-seeder')) {
-            return;
-        }
+        if ($this->option('no-seeder')) return;
 
-        $generator = new SeederGenerator($this->modelName);
-        $this->generateFile($generator, 'Seeder');
+        $this->generateFile(
+            new SeederGenerator($this->modelName),
+            'Seeder'
+        );
     }
 
     protected function generateRoutes(): void
     {
-        if ($this->option('no-routes') || !config('make-full.add_routes', true)) {
-            return;
-        }
+        if ($this->option('no-routes') || !config('make-full.add_routes', true)) return;
 
         $generator = new RouteGenerator(
             $this->modelName,
@@ -305,11 +309,9 @@ class MakeFullCommand extends Command
 
         $result = $generator->appendToFile($this->option('force'));
 
-        if ($result) {
-            $this->components->info("Routes added to routes/{$generator->getRoutesFile()}.php");
-        } else {
-            $this->components->warn("Routes already exist or file not found");
-        }
+        $result
+            ? $this->components->info("Routes added to routes/{$generator->getRoutesFile()}.php")
+            : $this->components->warn("Routes already exist or file not found");
     }
 
     protected function generateFile($generator, string $type): void
@@ -317,21 +319,13 @@ class MakeFullCommand extends Command
         $path = $generator->getPath();
         $fullPath = base_path($path);
 
-        // Check if file exists
-        if (file_exists($fullPath) && !$this->option('force')) {
+        if (File::exists($fullPath) && !$this->option('force')) {
             $this->components->warn("{$type} already exists: {$path}");
             return;
         }
 
-        // Ensure directory exists
-        $directory = dirname($fullPath);
-        if (!is_dir($directory)) {
-            mkdir($directory, 0755, true);
-        }
-
-        // Generate and write file
-        $content = $generator->generate();
-        file_put_contents($fullPath, $content);
+        File::ensureDirectoryExists(dirname($fullPath));
+        File::put($fullPath, $generator->generate());
 
         $this->components->info("{$type} created: {$path}");
     }
@@ -357,16 +351,6 @@ class MakeFullCommand extends Command
         $this->newLine();
         $this->line("  Don't forget to:");
         $this->line("  - Run: php artisan migrate");
-        $this->line("  - Register policy in AuthServiceProvider (if not using auto-discovery)");
+        $this->line("  - Register policy in AuthServiceProvider (if needed)");
     }
-
-    protected function extractNumericModifier(array $modifiers, string $key): ?int
-{
-    foreach ($modifiers as $mod) {
-        if (str_starts_with($mod, "{$key}(")) {
-            return (int) trim($mod, "{$key}()");
-        }
-    }
-    return null;
-}
 }
