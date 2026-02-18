@@ -29,8 +29,8 @@ class ControllerGenerator extends BaseGenerator
         $requestNamespace = config('make-full.namespaces.request', 'App\\Http\\Requests');
         $modelNamespace = config('make-full.namespaces.model', 'App\\Models');
 
-        return <<<PHP
-    <?php
+    return <<<PHP
+<?php
 
     namespace {$namespace};
 
