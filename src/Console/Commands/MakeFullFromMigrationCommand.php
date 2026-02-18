@@ -59,22 +59,22 @@ class MakeFullFromMigrationCommand extends Command
         foreach ($migrations as $migration) {
             $this->info('Processando migration: ' . ($migration['table'] ?? $migration['model']));
             $modelName = $migration['model'];
-            // Remove campos duplicados
+            // Remove campos duplicados e só usa os da migration atual
             $fields = array_values(array_unique($migration['fields'] ?? []));
             $fieldsString = implode(',', $fields);
             // Remove relações duplicadas
             $relations = array_values(array_unique($migration['relations'] ?? [], SORT_REGULAR));
-            // Adiciona belongsToMany se houver
+            // Adiciona belongsToMany se houver, mas só para o model atual
             $customRelations = $relations;
             if (isset($pivotRelations[$modelName])) {
                 foreach ($pivotRelations[$modelName] as $pivotRel) {
-                    // Evita duplicidade de belongsToMany
                     if (!in_array($pivotRel, $customRelations, true)) {
                         $customRelations[] = $pivotRel;
                     }
                 }
             }
             config(['make-full._relations' => $customRelations]);
+            // Chama o generator apenas com os campos da migration atual
             $this->call('make:full', [
                 'name' => $modelName,
                 '--fields' => $fieldsString,
@@ -98,6 +98,13 @@ class MakeFullFromMigrationCommand extends Command
             return null;
         }
         $table = $matches[1];
+
+        // 👇 IGNORAR TABELAS PADRÃO DO LARAVEL (agora via config)
+        $ignoreTables = config('make-full.ignore_tables', []);
+        if (in_array($table, $ignoreTables, true)) {
+            return null;
+        }
+
         $model = ucfirst(\Illuminate\Support\Str::singular(\Illuminate\Support\Str::studly($table)));
 
         // Regex para pegar campos comuns e FKs

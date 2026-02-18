@@ -134,4 +134,22 @@ return [
     |
     */
     'uuid' => false,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Ignore Tables
+    |--------------------------------------------------------------------------
+    |
+    | List of tables to ignore when generating files from migrations.
+    |
+    */
+    'ignore_tables' => [
+        'migrations',
+        'password_resets',
+        'failed_jobs',
+        'jobs',
+        'sessions',
+        'cache',
+        'personal_access_tokens',
+    ],
 ];
