@@ -71,7 +71,7 @@ PHP;
         }
 
         // Relações customizadas via config
-        $customRelations = config('make-full._relations', []);
+        $customRelations = config('make-full._relations') ?? [];
         foreach ($customRelations as $rel) {
             $relationName = lcfirst($rel['related']);
 
