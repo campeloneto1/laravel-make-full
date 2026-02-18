@@ -34,6 +34,23 @@ class ModelGenerator extends BaseGenerator
         $casts = $this->buildCasts();
         $relations = $this->buildRelations();
 
+        // Adiciona belongsTo para relações detectadas
+        $customRelations = config('make-full._relations', []);
+        $relationsCode = $relations;
+        if (!empty($customRelations)) {
+            foreach ($customRelations as $rel) {
+                $relatedModel = $rel['related'];
+                $methodName = lcfirst($relatedModel);
+                $relationsCode .= <<<PHP
+
+    public function {$methodName}(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return \$this->belongsTo({$relatedModel}::class);
+    }
+PHP;
+            }
+        }
+
         $content = <<<PHP
 <?php
 
@@ -48,7 +65,7 @@ class {$this->modelName} extends Model
 
 {$fillable}
 {$casts}
-{$relations}
+{$relationsCode}
 }
 PHP;
 

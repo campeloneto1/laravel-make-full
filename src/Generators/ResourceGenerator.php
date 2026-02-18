@@ -47,20 +47,29 @@ PHP;
 
         $lines = [];
 
+        $customRelations = config('make-full._relations', []);
+        $relationNames = [];
         foreach ($this->fields as $field) {
             $name = $field['name'];
-
-            // Handle relations
             if ($field['foreign']) {
                 $relatedModel = $field['foreign']['model'];
                 $relationName = lcfirst($relatedModel);
                 $lines[] = "            '{$name}' => \$this->{$name},";
                 $lines[] = "            '{$relationName}' => new {$relatedModel}Resource(\$this->whenLoaded('{$relationName}')),";
+                $relationNames[] = $relationName;
             } else {
                 $lines[] = "            '{$name}' => \$this->{$name},";
             }
         }
-
+        // Adiciona relações detectadas via config (caso não estejam nos fields)
+        if (!empty($customRelations)) {
+            foreach ($customRelations as $rel) {
+                $relationName = lcfirst($rel['related']);
+                if (!in_array($relationName, $relationNames)) {
+                    $lines[] = "            '{$relationName}' => new {$rel['related']}Resource(\$this->whenLoaded('{$relationName}')),";
+                }
+            }
+        }
         return implode("\n", $lines) . "\n";
     }
 
