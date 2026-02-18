@@ -1,6 +1,7 @@
+
 <?php
 
-namespace Campeloneto\MakeFull\Console\Commands;
+namespace Campelo\MakeFull\Console\Commands;
 
 use Illuminate\Console\Command;
 
