@@ -57,7 +57,7 @@ class ControllerGenerator extends BaseGenerator
     public function index(Request \$request): AnonymousResourceCollection
     {
         // Policy: viewAny
-        $this->authorize('viewAny', {$this->modelName}::class);
+        \$this->authorize('viewAny', {$this->modelName}::class);
         \$result = \$this->service->search(\$request->all());
         return {$this->modelName}Resource::collection(\$result);
     }
@@ -68,7 +68,7 @@ class ControllerGenerator extends BaseGenerator
     public function store(Store{$this->modelName}Request \$request): {$this->modelName}Resource
     {
         // Policy: create
-        $this->authorize('create', {$this->modelName}::class);
+        \$this->authorize('create', {$this->modelName}::class);
         \${$this->modelNameCamel} = \$this->service->create(\$request->validated());
         return new {$this->modelName}Resource(\${$this->modelNameCamel});
     }
@@ -79,7 +79,7 @@ class ControllerGenerator extends BaseGenerator
     public function show({$this->modelName} \${$this->modelNameCamel}): {$this->modelName}Resource
     {
         // Policy: view
-        $this->authorize('view', \${$this->modelNameCamel});
+        \$this->authorize('view', \${$this->modelNameCamel});
         return new {$this->modelName}Resource(\${$this->modelNameCamel});
     }
 
@@ -91,7 +91,7 @@ class ControllerGenerator extends BaseGenerator
         {$this->modelName} \${$this->modelNameCamel}
     ): {$this->modelName}Resource {
         // Policy: update
-        $this->authorize('update', \${$this->modelNameCamel});
+        \$this->authorize('update', \${$this->modelNameCamel});
         \${$this->modelNameCamel} = \$this->service->update(
             \${$this->modelNameCamel},
             \$request->validated()
@@ -105,7 +105,7 @@ class ControllerGenerator extends BaseGenerator
     public function destroy({$this->modelName} \${$this->modelNameCamel}): JsonResponse
     {
         // Policy: delete
-        $this->authorize('delete', \${$this->modelNameCamel});
+        \$this->authorize('delete', \${$this->modelNameCamel});
         \$this->service->delete(\${$this->modelNameCamel});
         return response()->json(null, 204);
     }
