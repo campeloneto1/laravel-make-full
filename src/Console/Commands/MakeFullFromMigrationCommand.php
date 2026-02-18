@@ -40,8 +40,13 @@ class MakeFullFromMigrationCommand extends Command
 
             $this->info("Gerando estrutura para: {$migration['model']}");
 
-            // 🔥 Garantir isolamento total
+            // 🔥 Reset completo antes de cada execução
             config()->offsetUnset('make-full._relations');
+
+            // 🔥 Define relações se existirem
+            if (!empty($migration['relations'])) {
+                config(['make-full._relations' => $migration['relations']]);
+            }
 
             Artisan::call('make:full', [
                 'name' => $migration['model'],
@@ -52,13 +57,16 @@ class MakeFullFromMigrationCommand extends Command
             $this->line(Artisan::output());
         }
 
+        // 🔥 Registrar policies automaticamente ao final
+        $this->info('Registrando policies automaticamente...');
+        Artisan::call('make-full:register-policies');
+        $this->line(Artisan::output());
+
         $this->info('Processamento finalizado com sucesso.');
+
         return self::SUCCESS;
     }
 
-    /**
-     * Coleta todas migrations válidas
-     */
     protected function collectMigrations(array $files): array
     {
         $migrations = [];
@@ -74,9 +82,6 @@ class MakeFullFromMigrationCommand extends Command
         return $migrations;
     }
 
-    /**
-     * Extrai nome do model, campos e relações
-     */
     protected function extractMigrationFields(string $file): ?array
     {
         $content = file_get_contents($file);
@@ -87,7 +92,6 @@ class MakeFullFromMigrationCommand extends Command
 
         $table = $match[1];
 
-        // Ignorar tabelas padrão
         $ignoreTables = config('make-full.ignore_tables', [
             'migrations',
             'password_resets',
@@ -126,7 +130,6 @@ class MakeFullFromMigrationCommand extends Command
                 continue;
             }
 
-            // Ignorar campos automáticos
             if (in_array($name, ['id', 'created_at', 'updated_at', 'deleted_at'], true)) {
                 continue;
             }
@@ -141,7 +144,6 @@ class MakeFullFromMigrationCommand extends Command
                 $modifiers[] = 'default(' . trim($def[1], "'\"") . ')';
             }
 
-            // Detectar foreign key
             if ($type === 'foreignId' || str_ends_with($name, '_id')) {
                 $relatedModel = Str::studly(str_replace('_id', '', $name));
 

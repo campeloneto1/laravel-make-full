@@ -151,5 +151,7 @@ return [
         'sessions',
         'cache',
         'personal_access_tokens',
+        'password_reset_tokens',
+        'sessions',
     ],
 ];
