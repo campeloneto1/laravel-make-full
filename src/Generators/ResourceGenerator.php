@@ -71,10 +71,12 @@ PHP;
         }
 
         // Relações customizadas via config
-        $customRelations = config('make-full._relations') ?? [];
+        $customRelations = config('make-full._relations');
+        if (!is_array($customRelations)) {
+            $customRelations = [];
+        }
         foreach ($customRelations as $rel) {
             $relationName = lcfirst($rel['related']);
-
             if (!in_array($relationName, $addedRelations)) {
                 $lines[] = "            '{$relationName}' => {$rel['related']}Resource::make(\$this->whenLoaded('{$relationName}')),";
                 $addedRelations[] = $relationName;
@@ -100,7 +102,10 @@ PHP;
             }
         }
 
-        $customRelations = config('make-full._relations', []);
+        $customRelations = config('make-full._relations');
+        if (!is_array($customRelations)) {
+            $customRelations = [];
+        }
         foreach ($customRelations as $rel) {
             if (!in_array($rel['related'], $added)) {
                 $relations[] = "use App\\Http\\Resources\\{$rel['related']}Resource;";
