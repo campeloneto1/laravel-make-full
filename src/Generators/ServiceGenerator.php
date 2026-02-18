@@ -55,9 +55,17 @@ class {$this->modelName}Service
      *   - sort: string - Sort field
      *   - order: string - Sort order (asc/desc)
      */
-    public function search(array \$params = []): LengthAwarePaginator
+    public function search(array $params = []): LengthAwarePaginator
     {
-        return \$this->repository->search(\$params);
+        // Se houver search, faz busca; senão, só pagina
+        if(!empty($params['search'])) {
+            return $this->repository->search($params);
+        }
+        // Remove search do array para paginação simples
+        $paramsNoSearch = $params;
+        unset($paramsNoSearch['search']);
+        $paramsNoSearch['limit'] = $params['limit'] ?? $this->defaultPagination;
+        return $this->repository->search($paramsNoSearch);
     }
 
     /**

@@ -45,10 +45,17 @@ class {$this->modelName}Controller extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index(Request \$request): AnonymousResourceCollection
+    public function index(Request $request): AnonymousResourceCollection
     {
-        \$result = \$this->service->search(\$request->all());
-
+        $result = $this->service->search($request->all());
+        return {$this->modelName}Resource::collection($result);
+    }
+            // Se houver parâmetro de busca, chama search
+            if (!empty(array_filter(\$query, fn(\$v, \$k) => \$k !== 'limit', ARRAY_FILTER_USE_BOTH))) {
+                \$result = \$this->service->search(\$query);
+            } else {
+                \$result = \$this->service->paginate(\$limit);
+            }
         return {$this->modelName}Resource::collection(\$result);
     }
 

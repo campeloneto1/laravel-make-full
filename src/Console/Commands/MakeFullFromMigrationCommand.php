@@ -59,19 +59,26 @@ class MakeFullFromMigrationCommand extends Command
         foreach ($migrations as $migration) {
             $this->info('Processando migration: ' . ($migration['table'] ?? $migration['model']));
             $modelName = $migration['model'];
-            $fieldsString = $migration['fieldsString'];
-            $relations = $migration['relations'] ?? [];
+            // Remove campos duplicados
+            $fields = array_values(array_unique($migration['fields'] ?? []));
+            $fieldsString = implode(',', $fields);
+            // Remove relações duplicadas
+            $relations = array_values(array_unique($migration['relations'] ?? [], SORT_REGULAR));
             // Adiciona belongsToMany se houver
             $customRelations = $relations;
             if (isset($pivotRelations[$modelName])) {
                 foreach ($pivotRelations[$modelName] as $pivotRel) {
-                    $customRelations[] = $pivotRel;
+                    // Evita duplicidade de belongsToMany
+                    if (!in_array($pivotRel, $customRelations, true)) {
+                        $customRelations[] = $pivotRel;
+                    }
                 }
             }
             config(['make-full._relations' => $customRelations]);
             $this->call('make:full', [
                 'name' => $modelName,
                 '--fields' => $fieldsString,
+                '--no-migration' => true,
             ]);
             config(['make-full._relations' => null]);
         }
